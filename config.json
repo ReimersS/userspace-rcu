@@ -1,0 +1,39 @@
+{
+  "flake_dir": "/home/sebastian/userspace-rcu",
+  "compilers": [
+    {
+      "name": "clang-O0",
+      "flake_output": "clangO0Package"
+    },
+    {
+      "name": "clang-O3",
+      "flake_output": "clangO3Package"
+    },
+    {
+      "name": "clangir-O0",
+      "flake_output": "clangirO0Package"
+    },
+    {
+      "name": "clangir-O3",
+      "flake_output": "clangirO3Package"
+    },
+    {
+      "name": "orb-O0",
+      "flake_output": "orbO0Package"
+    },
+    {
+      "name": "orb-O3",
+      "flake_output": "orbO3Package"
+    }
+  ],
+  "benchmarks": [
+    {
+      "name": "hashtable_3s",
+      "path": "tests/benchmark/hashtable_3_seconds.tap"
+    },
+    {
+      "name": "urcu_3s",
+      "path": "tests/benchmark/urcu_3_seconds.tap"
+    }
+  ]
+}
