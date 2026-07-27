@@ -2,6 +2,46 @@
   "flake_dir": "/home/sebastian/userspace-rcu",
   "compilers": [
     {
+      "name": "orb-O0-fc2",
+      "flake_output": "orbO0FC2Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O0-fc4",
+      "flake_output": "orbO0FC4Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O0-fc8",
+      "flake_output": "orbO0FC8Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O0-fc6",
+      "flake_output": "orbO0FC6Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O3-fc2",
+      "flake_output": "orbO3FC2Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O3-fc4",
+      "flake_output": "orbO3FC4Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O3-fc8",
+      "flake_output": "orbO3FC8Package",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O3-fc6",
+      "flake_output": "orbO3FC6Package",
+      "synthesis": true
+    },
+    {
       "name": "clang-O0",
       "flake_output": "clangO0Package"
     },
@@ -16,24 +56,12 @@
     {
       "name": "clangir-O3",
       "flake_output": "clangirO3Package"
-    },
-    {
-      "name": "orb-O0",
-      "flake_output": "orbO0Package"
-    },
-    {
-      "name": "orb-O3",
-      "flake_output": "orbO3Package"
     }
   ],
   "benchmarks": [
     {
-      "name": "hashtable_3s",
-      "path": "tests/benchmark/hashtable_3_seconds.tap"
-    },
-    {
-      "name": "urcu_3s",
-      "path": "tests/benchmark/urcu_3_seconds.tap"
+      "name": "hashtable_1s",
+      "path": "tests/benchmark/hashtable_1_seconds.tap"
     }
   ]
 }

@@ -9,22 +9,28 @@ import re
 import subprocess
 import sys
 import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+
+N_RUNS = 5
 
 
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
 
-def build_compiler(flake_dir: str, compiler: dict) -> str:
-    """nix build the urcu variant and return the store path."""
+def build_compiler(flake_dir: str, compiler: dict) -> tuple[str, str]:
+    """nix build the urcu variant and return (store_path, build_log)."""
     flake_ref = f"{flake_dir}#{compiler['flake_output']}.aarch64-linux"
     out_link = Path(flake_dir) / f"result-{compiler['name']}"
     cmd = [
         "nix", "build", flake_ref,
         "--out-link", str(out_link),
         "--print-out-paths",
+        "-L",
+        "--log-format", "raw",
     ]
     print(f"[build] {compiler['name']}: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -33,33 +39,34 @@ def build_compiler(flake_dir: str, compiler: dict) -> str:
         raise RuntimeError(f"nix build failed for {compiler['name']}")
     store_path = result.stdout.strip().splitlines()[-1]
     print(f"[build] {compiler['name']} -> {store_path}")
-    return store_path
+    return store_path, result.stderr
 
 
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
-def run_benchmark(store_path: str, benchmark: dict, out_dir: Path) -> tuple[str, float]:
+def run_benchmark(store_path: str, benchmark: dict, out_dir: Path,
+                  run_n: int) -> tuple[str, float]:
     """Run a single benchmark .tap script, return (output, elapsed_seconds)."""
-    tap_script = Path(store_path)  / benchmark["path"]
+    tap_script = Path(store_path) / benchmark["path"]
     env = os.environ.copy()
     env["URCU_TESTS_SRCDIR"] = str(Path(store_path) / "tests")
     env["URCU_TESTS_BUILDDIR"] = str(Path(store_path) / "tests")
 
-    print(f"  [run] {benchmark['name']}")
+    print(f"  [run] {benchmark['name']} #{run_n}")
     t0 = time.monotonic()
     result = subprocess.run(
-        ["bash", str(tap_script)],
+        ["taskset", "-c", "0-63", "bash", str(tap_script)],
         capture_output=True, text=True, env=env,
     )
     elapsed = time.monotonic() - t0
 
     output = result.stdout + result.stderr
-    out_file = out_dir / f"{benchmark['name']}.tap"
+    out_file = out_dir / f"{benchmark['name']}.{run_n}.tap"
     out_file.write_text(output)
     if result.returncode != 0:
-        print(f"  [warn] {benchmark['name']} exited {result.returncode}")
+        print(f"  [warn] {benchmark['name']} #{run_n} exited {result.returncode}")
     return output, elapsed
 
 
@@ -216,33 +223,90 @@ def tap_counts(output: str) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
+# Synthesis log parsing
+# ---------------------------------------------------------------------------
+
+_FS_REQUIRED = re.compile(r'\[FenceSynthesis\] required pairs=(\d+)')
+_FS_ORDERED  = re.compile(r'\[FenceSynthesis\] ordered=(\d+)/\d+ overspecified=(\d+) t=(\d+)ms')
+_FS_DONE     = re.compile(r'\[FenceSynthesis\] done ordered=(\d+)/\d+ overspecified=(\d+) t=(\d+)ms')
+
+
+def parse_synthesis_log(build_log: str) -> list[dict]:
+    """Parse [FenceSynthesis] lines from a nix build log into one row per compilation unit."""
+    rows = []
+    unit: dict | None = None
+
+    for raw_line in build_log.splitlines():
+        # Nix prefixes build log lines with "<pkg>> "; strip it.
+        line = re.sub(r'^[^>]+> ?', '', raw_line)
+
+        m = _FS_REQUIRED.search(line)
+        if m:
+            unit = {
+                "source": int(m.group(1)),
+                "implicit": None,
+                "overspecified_initial": None,
+                "ordered_final": None,
+                "overspecified_final": None,
+                "promotions": -1,  # first ordered= line is implicit (not a promotion)
+                "synthesis_time_ms": None,
+            }
+            continue
+
+        if unit is None:
+            continue
+
+        m = _FS_DONE.search(line)
+        if m:
+            unit["ordered_final"] = int(m.group(1))
+            unit["overspecified_final"] = int(m.group(2))
+            unit["synthesis_time_ms"] = int(m.group(3))
+            rows.append(unit)
+            unit = None
+            continue
+
+        m = _FS_ORDERED.search(line)
+        if m:
+            if unit["implicit"] is None:
+                unit["implicit"] = int(m.group(1))
+                unit["overspecified_initial"] = int(m.group(2))
+            unit["promotions"] += 1
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Compare
 # ---------------------------------------------------------------------------
 
 def compare_outputs(all_results: dict) -> str:
-    """Compare TAP pass/fail counts against clang baseline."""
+    """Compare TAP pass/fail counts against first compiler baseline."""
     lines = []
     baseline_name = next(iter(all_results))
     lines.append(f"Baseline compiler: {baseline_name}\n")
 
     for benchmark_name in next(iter(all_results.values())):
         lines.append(f"\n=== {benchmark_name} ===")
-        baseline_counts = tap_counts(all_results[baseline_name][benchmark_name]["output"])
+        combined_baseline = "".join(
+            o for o, _ in all_results[baseline_name][benchmark_name]["outputs"]
+        )
+        baseline_counts = tap_counts(combined_baseline)
         lines.append(
-            f"  {baseline_name:12s}: ok={baseline_counts['ok']}  "
+            f"  {baseline_name:14s}: ok={baseline_counts['ok']}  "
             f"not_ok={baseline_counts['not ok']}"
         )
         for compiler, benchmarks in all_results.items():
             if compiler == baseline_name:
                 continue
-            counts = tap_counts(benchmarks[benchmark_name]["output"])
+            combined = "".join(o for o, _ in benchmarks[benchmark_name]["outputs"])
+            counts = tap_counts(combined)
             match = (
                 counts["ok"] == baseline_counts["ok"]
                 and counts["not ok"] == baseline_counts["not ok"]
             )
             status = "OK" if match else "MISMATCH"
             lines.append(
-                f"  {compiler:12s}: ok={counts['ok']}  "
+                f"  {compiler:14s}: ok={counts['ok']}  "
                 f"not_ok={counts['not ok']}  [{status}]"
             )
     return "\n".join(lines)
@@ -253,7 +317,7 @@ def compare_outputs(all_results: dict) -> str:
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
-    "run_id", "compiler", "benchmark",
+    "run_id", "compiler", "run_n", "benchmark",
     "tap_n", "tap_ok", "test_program", "write_mode", "mm_backend",
     "writer_delay", "reader_cs_dur",
     "nr_readers", "nr_writers",
@@ -269,33 +333,51 @@ def write_csv(run_id: str, all_results: dict, path: Path):
         writer.writeheader()
         for compiler, benchmarks in all_results.items():
             for benchmark_name, data in benchmarks.items():
-                wall = data["wall_clock_s"]
-                wall_str = f"{wall:.2f}" if wall is not None else ""
-                for summary in data["summaries"]:
-                    writer.writerow({
-                        "run_id":                 run_id,
-                        "compiler":               compiler,
-                        "benchmark":              benchmark_name,
-                        "tap_n":                  summary["tap_n"],
-                        "tap_ok":                 summary["tap_ok"],
-                        "test_program":           summary["test_program"],
-                        "write_mode":             summary["write_mode"],
-                        "mm_backend":             summary["mm_backend"],
-                        "writer_delay":           summary["writer_delay"],
-                        "reader_cs_dur":          summary["reader_cs_dur"],
-                        "nr_readers":             summary["nr_readers"],
-                        "nr_writers":             summary["nr_writers"],
-                        "nr_ops":                 summary["nr_ops"],
-                        "nr_reads":               summary["nr_reads"],
-                        "nr_writes":              summary["nr_writes"],
-                        "testdur":                summary["testdur"],
-                        "throughput_ops_per_sec": summary["throughput"],
-                        "wall_clock_s":           wall_str,
-                        "batch":                  summary["batch"],
-                        "nr_add":                 summary["nr_add"],
-                        "nr_remove":              summary["nr_remove"],
-                        "nr_leaked":              summary["nr_leaked"],
-                    })
+                for run_n, (output, wall) in enumerate(data["outputs"], 1):
+                    wall_str = f"{wall:.2f}" if wall is not None else ""
+                    for summary in parse_summaries(output):
+                        writer.writerow({
+                            "run_id":                 run_id,
+                            "compiler":               compiler,
+                            "run_n":                  run_n,
+                            "benchmark":              benchmark_name,
+                            "tap_n":                  summary["tap_n"],
+                            "tap_ok":                 summary["tap_ok"],
+                            "test_program":           summary["test_program"],
+                            "write_mode":             summary["write_mode"],
+                            "mm_backend":             summary["mm_backend"],
+                            "writer_delay":           summary["writer_delay"],
+                            "reader_cs_dur":          summary["reader_cs_dur"],
+                            "nr_readers":             summary["nr_readers"],
+                            "nr_writers":             summary["nr_writers"],
+                            "nr_ops":                 summary["nr_ops"],
+                            "nr_reads":               summary["nr_reads"],
+                            "nr_writes":              summary["nr_writes"],
+                            "testdur":                summary["testdur"],
+                            "throughput_ops_per_sec": summary["throughput"],
+                            "wall_clock_s":           wall_str,
+                            "batch":                  summary["batch"],
+                            "nr_add":                 summary["nr_add"],
+                            "nr_remove":              summary["nr_remove"],
+                            "nr_leaked":              summary["nr_leaked"],
+                        })
+
+
+SYNTH_FIELDS = [
+    "run_id", "compiler",
+    "source", "implicit", "overspecified_initial",
+    "ordered_final", "overspecified_final",
+    "promotions", "synthesis_time_ms",
+]
+
+
+def write_synthesis_csv(run_id: str, rows: list[dict], path: Path):
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=SYNTH_FIELDS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in SYNTH_FIELDS})
+    print(f"Synthesis: {path} ({len(rows)} rows)")
 
 
 # ---------------------------------------------------------------------------
@@ -335,14 +417,16 @@ def reparse(run_dir: Path) -> None:
             continue
         compiler = compiler_dir.name
         all_results[compiler] = {}
+
+        # Group *.N.tap files by benchmark name (part before first dot).
+        tap_groups: dict[str, list[Path]] = defaultdict(list)
         for tap_file in sorted(compiler_dir.glob("*.tap")):
-            benchmark_name = tap_file.stem
-            output = tap_file.read_text()
-            all_results[compiler][benchmark_name] = {
-                "output":       output,
-                "wall_clock_s": None,
-                "summaries":    parse_summaries(output),
-            }
+            bench = tap_file.name.split(".")[0]
+            tap_groups[bench].append(tap_file)
+
+        for bench, files in sorted(tap_groups.items()):
+            outputs = [(f.read_text(), None) for f in sorted(files)]
+            all_results[compiler][bench] = {"outputs": outputs}
 
     report = compare_outputs(all_results)
     print(report)
@@ -381,11 +465,14 @@ def main():
     print(f"Run directory: {run_dir}")
 
     # Build all compiler variants first
-    store_paths = {}
+    store_paths: dict[str, str] = {}
+    build_logs:  dict[str, str] = {}
     for compiler in compilers:
-        store_paths[compiler["name"]] = build_compiler(flake_dir, compiler)
+        path, log = build_compiler(flake_dir, compiler)
+        store_paths[compiler["name"]] = path
+        build_logs[compiler["name"]]  = log
 
-    # Run benchmarks
+    # Run benchmarks (N_RUNS times each)
     all_results: dict[str, dict] = {}
     for compiler in compilers:
         name = compiler["name"]
@@ -395,22 +482,38 @@ def main():
         all_results[name] = {}
         print(f"\n[{name}]")
         for benchmark in benchmarks:
-            output, elapsed = run_benchmark(store_path, benchmark, compiler_dir)
-            all_results[name][benchmark["name"]] = {
-                "output":       output,
-                "wall_clock_s": elapsed,
-                "summaries":    parse_summaries(output),
-            }
+            outputs = []
+            for run_n in range(1, N_RUNS + 1):
+                output, elapsed = run_benchmark(store_path, benchmark,
+                                                compiler_dir, run_n)
+                outputs.append((output, elapsed))
+            all_results[name][benchmark["name"]] = {"outputs": outputs}
 
     # Compare and report
     report = compare_outputs(all_results)
     print(f"\n{report}")
     (run_dir / "report.txt").write_text(report)
 
-    # CSV
+    # Results CSV
     csv_path = run_dir / "results.csv"
     write_csv(run_id, all_results, csv_path)
     print(f"\nResults: {csv_path}")
+
+    # Synthesis CSV (orb compilers only, skipped on nix cache hits)
+    synth_rows: list[dict] = []
+    for compiler in compilers:
+        if not compiler.get("synthesis"):
+            continue
+        log = build_logs[compiler["name"]]
+        if not log:
+            continue
+        rows = parse_synthesis_log(log)
+        for r in rows:
+            r["compiler"] = compiler["name"]
+            r["run_id"]   = run_id
+        synth_rows.extend(rows)
+    if synth_rows:
+        write_synthesis_csv(run_id, synth_rows, run_dir / "synthesis.csv")
 
     update_symlinks(runs_dir, run_dir)
 
