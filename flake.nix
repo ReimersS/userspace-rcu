@@ -64,6 +64,8 @@
         CXXFLAGS = cflags;
         installPhase = installTests;
       };
+      fCosts = [2 64 128 256];
+
     in
     {
       packages.default = mkUrcu { name = "urcu-clang0"; stdenv = pkgs.llvmPackages.stdenv; cflags = "-O0"; };
@@ -72,14 +74,14 @@
       clangO3Package   = mkUrcu { name = "urcu-clang3"; stdenv = pkgs.llvmPackages.stdenv; cflags = "-O3"; };
       clangirO0Package = mkUrcu { name = "urcu-clangir0"; stdenv = orbstdenv; cflags = "-fclangir -O0"; };
       clangirO3Package = mkUrcu { name = "urcu-clangir3"; stdenv = orbstdenv; cflags = "-fclangir -O3"; };
-      orbO0FC2Package  = mkUrcu { name = "urcu-orb0-fc2";  stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=2  -O0"; };
-      orbO0FC4Package  = mkUrcu { name = "urcu-orb0-fc4";  stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=4  -O0"; };
-      orbO0FC8Package  = mkUrcu { name = "urcu-orb0-fc8";  stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=8  -O0"; };
-      orbO0FC6Package = mkUrcu { name = "urcu-orb0-fc6"; stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=6 -O0"; };
-      orbO3FC2Package  = mkUrcu { name = "urcu-orb3-fc2";  stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=2  -O3"; };
-      orbO3FC4Package  = mkUrcu { name = "urcu-orb3-fc4";  stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=4  -O3"; };
-      orbO3FC8Package  = mkUrcu { name = "urcu-orb3-fc8";  stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=8  -O3"; };
-      orbO3FC6Package = mkUrcu { name = "urcu-orb3-fc6"; stdenv = orbstdenv; cflags = "-fclangir -Xclang -orb -orb-fence-cost-base=6 -O3"; };
+    } // (builtins.listToAttrs (builtins.concatMap (fc: [
+      { name = "orb-O0-fc${toString fc}";
+        value = mkUrcu { name = "urcu-orb-O0-fc${toString fc}"; stdenv = orbstdenv;
+                         cflags = "-fclangir -Xclang -orb -Xclang -orb-fence-cost-base=${toString fc} -O0"; }; }
+      { name = "orb-O3-fc${toString fc}";
+        value = mkUrcu { name = "urcu-orb-O3-fc${toString fc}"; stdenv = orbstdenv;
+                         cflags = "-fclangir -Xclang -orb -Xclang -orb-fence-cost-base=${toString fc} -O3"; }; }
+    ]) fCosts)) // {
 
       devShells.default = pkgs.mkShell {
         packages = [

@@ -3,42 +3,42 @@
   "compilers": [
     {
       "name": "orb-O0-fc2",
-      "flake_output": "orbO0FC2Package",
+      "flake_output": "orb-O0-fc2",
       "synthesis": true
     },
     {
-      "name": "orb-O0-fc4",
-      "flake_output": "orbO0FC4Package",
+      "name": "orb-O0-fc64",
+      "flake_output": "orb-O0-fc64",
       "synthesis": true
     },
     {
-      "name": "orb-O0-fc8",
-      "flake_output": "orbO0FC8Package",
+      "name": "orb-O0-fc128",
+      "flake_output": "orb-O0-fc128",
       "synthesis": true
     },
     {
-      "name": "orb-O0-fc6",
-      "flake_output": "orbO0FC6Package",
+      "name": "orb-O0-fc256",
+      "flake_output": "orb-O0-fc256",
       "synthesis": true
     },
     {
       "name": "orb-O3-fc2",
-      "flake_output": "orbO3FC2Package",
+      "flake_output": "orb-O3-fc2",
       "synthesis": true
     },
     {
-      "name": "orb-O3-fc4",
-      "flake_output": "orbO3FC4Package",
+      "name": "orb-O3-fc64",
+      "flake_output": "orb-O3-fc64",
       "synthesis": true
     },
     {
-      "name": "orb-O3-fc8",
-      "flake_output": "orbO3FC8Package",
+      "name": "orb-O3-fc128",
+      "flake_output": "orb-O3-fc128",
       "synthesis": true
     },
     {
-      "name": "orb-O3-fc6",
-      "flake_output": "orbO3FC6Package",
+      "name": "orb-O3-fc256",
+      "flake_output": "orb-O3-fc256",
       "synthesis": true
     },
     {
@@ -62,6 +62,10 @@
     {
       "name": "hashtable_1s",
       "path": "tests/benchmark/hashtable_1_seconds.tap"
+    },
+    {
+      "name": "urcu_1s",
+      "path": "tests/benchmark/urcu_1_seconds.tap"
     }
   ]
 }

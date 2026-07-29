@@ -229,20 +229,38 @@ def tap_counts(output: str) -> dict[str, int]:
 _FS_REQUIRED = re.compile(r'\[FenceSynthesis\] required pairs=(\d+)')
 _FS_ORDERED  = re.compile(r'\[FenceSynthesis\] ordered=(\d+)/\d+ overspecified=(\d+) t=(\d+)ms')
 _FS_DONE     = re.compile(r'\[FenceSynthesis\] done ordered=(\d+)/\d+ overspecified=(\d+) t=(\d+)ms')
+# Autotools CC step: "  CC       liburcu_la-urcu.lo" → extract short name "urcu"
+_CC_STEP     = re.compile(r'\bCC\b\s+\S*?(?:la-)?(\w+)\.lo\b')
 
 
-def parse_synthesis_log(build_log: str) -> list[dict]:
-    """Parse [FenceSynthesis] lines from a nix build log into one row per compilation unit."""
-    rows = []
+def parse_synthesis_log(build_log: str) -> tuple[list[dict], list[dict]]:
+    """Parse [FenceSynthesis] lines from a nix build log.
+
+    Returns (synth_rows, conv_rows):
+      synth_rows  — one dict per compilation unit (as before, with added cu_name)
+      conv_rows   — one dict per (CU, iteration): cu_name, iteration, outstanding
+    """
+    synth_rows: list[dict] = []
+    conv_rows:  list[dict] = []
     unit: dict | None = None
+    current_cu: str = ""
+    iteration: int = 0
 
     for raw_line in build_log.splitlines():
         # Nix prefixes build log lines with "<pkg>> "; strip it.
         line = re.sub(r'^[^>]+> ?', '', raw_line)
 
+        # Track which .lo is being compiled so we can label the CU.
+        m = _CC_STEP.search(line)
+        if m and '[FenceSynthesis]' not in line:
+            current_cu = m.group(1)
+            continue
+
         m = _FS_REQUIRED.search(line)
         if m:
+            iteration = 0
             unit = {
+                "cu_name": current_cu or "unknown",
                 "source": int(m.group(1)),
                 "implicit": None,
                 "overspecified_initial": None,
@@ -261,18 +279,26 @@ def parse_synthesis_log(build_log: str) -> list[dict]:
             unit["ordered_final"] = int(m.group(1))
             unit["overspecified_final"] = int(m.group(2))
             unit["synthesis_time_ms"] = int(m.group(3))
-            rows.append(unit)
+            synth_rows.append(unit)
             unit = None
             continue
 
         m = _FS_ORDERED.search(line)
         if m:
+            ordered = int(m.group(1))
             if unit["implicit"] is None:
-                unit["implicit"] = int(m.group(1))
+                unit["implicit"] = ordered
                 unit["overspecified_initial"] = int(m.group(2))
             unit["promotions"] += 1
+            outstanding = unit["source"] - ordered
+            conv_rows.append({
+                "cu_name": unit["cu_name"],
+                "iteration": iteration,
+                "outstanding": outstanding,
+            })
+            iteration += 1
 
-    return rows
+    return synth_rows, conv_rows
 
 
 # ---------------------------------------------------------------------------
@@ -364,11 +390,13 @@ def write_csv(run_id: str, all_results: dict, path: Path):
 
 
 SYNTH_FIELDS = [
-    "run_id", "compiler",
+    "run_id", "compiler", "cu_name",
     "source", "implicit", "overspecified_initial",
     "ordered_final", "overspecified_final",
     "promotions", "synthesis_time_ms",
 ]
+
+CONV_FIELDS = ["run_id", "compiler", "cu_name", "iteration", "outstanding"]
 
 
 def write_synthesis_csv(run_id: str, rows: list[dict], path: Path):
@@ -378,6 +406,15 @@ def write_synthesis_csv(run_id: str, rows: list[dict], path: Path):
         for row in rows:
             writer.writerow({k: row.get(k, "") for k in SYNTH_FIELDS})
     print(f"Synthesis: {path} ({len(rows)} rows)")
+
+
+def write_convergence_csv(run_id: str, rows: list[dict], path: Path):
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CONV_FIELDS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in CONV_FIELDS})
+    print(f"Convergence: {path} ({len(rows)} rows)")
 
 
 # ---------------------------------------------------------------------------
@@ -499,21 +536,28 @@ def main():
     write_csv(run_id, all_results, csv_path)
     print(f"\nResults: {csv_path}")
 
-    # Synthesis CSV (orb compilers only, skipped on nix cache hits)
+    # Synthesis + convergence CSVs (orb compilers only, skipped on nix cache hits)
     synth_rows: list[dict] = []
+    conv_rows:  list[dict] = []
     for compiler in compilers:
         if not compiler.get("synthesis"):
             continue
         log = build_logs[compiler["name"]]
         if not log:
             continue
-        rows = parse_synthesis_log(log)
-        for r in rows:
+        s_rows, c_rows = parse_synthesis_log(log)
+        for r in s_rows:
             r["compiler"] = compiler["name"]
             r["run_id"]   = run_id
-        synth_rows.extend(rows)
+        for r in c_rows:
+            r["compiler"] = compiler["name"]
+            r["run_id"]   = run_id
+        synth_rows.extend(s_rows)
+        conv_rows.extend(c_rows)
     if synth_rows:
         write_synthesis_csv(run_id, synth_rows, run_dir / "synthesis.csv")
+    if conv_rows:
+        write_convergence_csv(run_id, conv_rows, run_dir / "convergence.csv")
 
     update_symlinks(runs_dir, run_dir)
 
