@@ -1,0 +1,47 @@
+{
+  "flake_dir": "/home/sebastian/userspace-rcu",
+  "compilers": [
+    {
+      "name": "orb-O0-fc2",
+      "flake_output": "orb-O0-fc2",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O0-fc256",
+      "flake_output": "orb-O0-fc256",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O3-fc2",
+      "flake_output": "orb-O3-fc2",
+      "synthesis": true
+    },
+    {
+      "name": "orb-O3-fc256",
+      "flake_output": "orb-O3-fc256",
+      "synthesis": true
+    },
+    {
+      "name": "clang-O0",
+      "flake_output": "clangO0Package"
+    },
+    {
+      "name": "clang-O3",
+      "flake_output": "clangO3Package"
+    },
+    {
+      "name": "clangir-O0",
+      "flake_output": "clangirO0Package"
+    },
+    {
+      "name": "clangir-O3",
+      "flake_output": "clangirO3Package"
+    }
+  ],
+  "benchmarks": [
+    {
+      "name": "urcu_1s",
+      "path": "tests/benchmark/urcu_1_seconds.tap"
+    }
+  ]
+}

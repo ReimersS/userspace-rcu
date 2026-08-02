@@ -1,10 +1,6 @@
 {
   "flake_dir": "/home/sebastian/userspace-rcu",
   "orb_cc": "result-orb-cc/bin/clang",
-  "herd7": "result-herd7/bin/herd7",
-  "cat": "aarch64.cat",
-  "libdir": "result-herd7/share/herdtools7/herd",
-  "litmus_tests": "/home/sebastian/herdtools7/catalogue/c11popl15/tests/illustrative",
   "compilers": [
     {
       "name": "orb-O0-fc1",
@@ -77,12 +73,12 @@
   ],
   "benchmarks": [
     {
-      "name": "hashtable_1s",
-      "path": "tests/benchmark/hashtable_1_seconds.tap"
+      "name": "hashtable_3s",
+      "path": "tests/benchmark/hashtable_3_seconds.tap"
     },
     {
-      "name": "urcu_1s",
-      "path": "tests/benchmark/urcu_1_seconds.tap"
+      "name": "urcu_3s",
+      "path": "tests/benchmark/urcu_3_seconds.tap"
     }
   ]
 }

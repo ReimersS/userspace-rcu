@@ -39,6 +39,13 @@
       my-wrapped-llvm = pkgs.llvmPackages.clang.override { cc = my-llvm; };
       mystdenv = pkgs.overrideCC pkgs.llvmPackages.stdenv my-wrapped-llvm;
 
+      filteredSrc = builtins.path {
+        path = self;
+        name = "urcu-src";
+        filter = path: _type:
+          builtins.match ".*\\.(py|json)$" path == null;
+      };
+
       orb-cc = clang-orb.packages.${system}.default;
       orb-wrapped = pkgs.llvmPackages.clang.override { cc = orb-cc; };
       orbstdenv = pkgs.overrideCC pkgs.llvmPackages.stdenv orb-wrapped;
@@ -55,23 +62,23 @@
       '';
       mkUrcu = { name, stdenv, cflags ? "" }: stdenv.mkDerivation {
         inherit name;
-        src = self;
+        src = filteredSrc;
         buildInputs = inputs_common;
         preConfigure = "autoreconf -fiv";
         dontDisableStatic = true;
         configureFlags = [ "--enable-compiler-atomic-builtins" "--disable-shared" ];
-        CFLAGS = cflags;
-        CXXFLAGS = cflags;
+        CFLAGS = "-march=armv8.1-a ${cflags}";
+        CXXFLAGS = "-march=armv8.1-a ${cflags}";
         installPhase = installTests;
       };
-      fCosts = [2 64 128 256];
+      fCosts = [1 333 666 999];
 
     in
     {
-      packages.default = mkUrcu { name = "urcu-clang0"; stdenv = pkgs.llvmPackages.stdenv; cflags = "-O0"; };
+      packages.default = mkUrcu { name = "urcu-clang0"; stdenv = orbstdenv; cflags = "-O0"; };
 
-      clangO0Package   = mkUrcu { name = "urcu-clang0"; stdenv = pkgs.llvmPackages.stdenv; cflags = "-O0"; };
-      clangO3Package   = mkUrcu { name = "urcu-clang3"; stdenv = pkgs.llvmPackages.stdenv; cflags = "-O3"; };
+      clangO0Package   = mkUrcu { name = "urcu-clang0"; stdenv = orbstdenv; cflags = "-O0"; };
+      clangO3Package   = mkUrcu { name = "urcu-clang3"; stdenv = orbstdenv; cflags = "-O3"; };
       clangirO0Package = mkUrcu { name = "urcu-clangir0"; stdenv = orbstdenv; cflags = "-fclangir -O0"; };
       clangirO3Package = mkUrcu { name = "urcu-clangir3"; stdenv = orbstdenv; cflags = "-fclangir -O3"; };
     } // (builtins.listToAttrs (builtins.concatMap (fc: [
@@ -90,10 +97,12 @@
         ];
       };
 
+      packages.orb-cc = orb-wrapped;
+
       defaultPackage = self.packages.${system}.default;
       impurePackage = mystdenv.mkDerivation {
         name = "urcu-impure";
-        src = self;
+        src = filteredSrc;
         buildInputs = inputs_common ++ (with pkgs; [ gdb ]);
         preConfigure = "autoreconf -fiv";
         dontDisableStatic = true;
