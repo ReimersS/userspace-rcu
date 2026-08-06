@@ -60,16 +60,27 @@
           echo "export URCU_TESTS_TIME_BIN=time"
         } > $out/tests/utils/env.sh
       '';
-      mkUrcu = { name, stdenv, cflags ? "" }: stdenv.mkDerivation {
+      mkUrcu = { name, stdenv, cflags ? "", synthesis ? false }: stdenv.mkDerivation {
         inherit name;
         src = filteredSrc;
         buildInputs = inputs_common;
-        preConfigure = "autoreconf -fiv";
+        preConfigure = ''
+          autoreconf -fiv
+        '' + (if synthesis then ''
+          export ORB_SYNTH_LOG="$(pwd)/.synth-logs"
+          mkdir -p "$ORB_SYNTH_LOG"
+        '' else "");
         dontDisableStatic = true;
+        enableParallelBuilding = true;
         configureFlags = [ "--enable-compiler-atomic-builtins" "--disable-shared" ];
-        CFLAGS = "-march=armv8.1-a ${cflags}";
-        CXXFLAGS = "-march=armv8.1-a ${cflags}";
-        installPhase = installTests;
+        CFLAGS = "-march=armv8.1-a+rcpc ${cflags}";
+        CXXFLAGS = "-march=armv8.1-a+rcpc ${cflags}";
+        installPhase = installTests + (if synthesis then ''
+          if [ -d .synth-logs ]; then
+            mkdir -p $out/synth
+            cp .synth-logs/* $out/synth/ 2>/dev/null || true
+          fi
+        '' else "");
       };
       fCosts = [1 333 666 999];
 
@@ -83,10 +94,10 @@
       clangirO3Package = mkUrcu { name = "urcu-clangir3"; stdenv = orbstdenv; cflags = "-fclangir -O3"; };
     } // (builtins.listToAttrs (builtins.concatMap (fc: [
       { name = "orb-O0-fc${toString fc}";
-        value = mkUrcu { name = "urcu-orb-O0-fc${toString fc}"; stdenv = orbstdenv;
+        value = mkUrcu { name = "urcu-orb-O0-fc${toString fc}"; stdenv = orbstdenv; synthesis = true;
                          cflags = "-fclangir -Xclang -orb -Xclang -orb-fence-cost-base=${toString fc} -O0"; }; }
       { name = "orb-O3-fc${toString fc}";
-        value = mkUrcu { name = "urcu-orb-O3-fc${toString fc}"; stdenv = orbstdenv;
+        value = mkUrcu { name = "urcu-orb-O3-fc${toString fc}"; stdenv = orbstdenv; synthesis = true;
                          cflags = "-fclangir -Xclang -orb -Xclang -orb-fence-cost-base=${toString fc} -O3"; }; }
     ]) fCosts)) // {
 
@@ -107,8 +118,8 @@
         preConfigure = "autoreconf -fiv";
         dontDisableStatic = true;
         configureFlags = [ "--enable-compiler-atomic-builtins" "--disable-shared" ];
-        CFLAGS = "-fclangir -Xclang -orb";
-        CXXFLAGS = "-fclangir -Xclang -orb";
+        CFLAGS = "-march=armv8.1-a+rcpc -fclangir -Xclang -orb";
+        CXXFLAGS = "-march=armv8.1-a+rcpc -fclangir -Xclang -orb";
         installPhase = installTests;
       };
     }

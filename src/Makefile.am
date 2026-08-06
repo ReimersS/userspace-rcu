@@ -26,6 +26,7 @@ lib_LTLIBRARIES = liburcu-common.la \
 # as futex fallbacks.
 #
 liburcu_common_la_SOURCES = wfqueue.c wfcqueue.c wfstack.c $(COMPAT)
+liburcu_common_la_CFLAGS = $(AM_CFLAGS)
 
 liburcu_la_SOURCES = urcu.c urcu-pointer.c $(COMPAT)
 liburcu_la_CFLAGS = -DRCU_MEMBARRIER $(AM_CFLAGS)
@@ -44,10 +45,12 @@ liburcu_mb_la_CFLAGS = -DRCU_MB $(AM_CFLAGS)
 liburcu_mb_la_LIBADD = liburcu-common.la
 
 liburcu_bp_la_SOURCES = urcu-bp.c urcu-pointer.c $(COMPAT)
+liburcu_bp_la_CFLAGS = $(AM_CFLAGS)
 liburcu_bp_la_LIBADD = liburcu-common.la
 
 liburcu_cds_la_SOURCES = rculfqueue.c rculfstack.c lfstack.c \
 	workqueue.c workqueue.h $(RCULFHASH) $(COMPAT)
+liburcu_cds_la_CFLAGS = $(AM_CFLAGS)
 liburcu_cds_la_LIBADD = liburcu-common.la
 
 pkgconfigdir = $(libdir)/pkgconfig

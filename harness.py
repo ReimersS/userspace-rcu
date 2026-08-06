@@ -232,9 +232,10 @@ def tap_counts(output: str) -> dict[str, int]:
 # Synthesis log parsing
 # ---------------------------------------------------------------------------
 
-_FS_REQUIRED = re.compile(r'\[FenceSynthesis\] required pairs=(\d+)')
-_FS_ORDERED  = re.compile(r'\[FenceSynthesis\] ordered=(\d+)/\d+ overspecified=(\d+) t=(\d+)ms')
-_FS_DONE     = re.compile(r'\[FenceSynthesis\] done ordered=(\d+)/\d+ overspecified=(\d+) t=(\d+)ms')
+_FS_REQUIRED = re.compile(r'\[FenceSynthesis\].*?required pairs=(\d+)')
+_FS_MATRIX   = re.compile(r'\[FenceSynthesis\].*?n=(\d+)\s+unreachable=(\d+)\s+reachable=(\d+)')
+_FS_ORDERED  = re.compile(r'\[FenceSynthesis\].*?ordered=(\d+)/\d+ overspecified=(\d+).*?(?:batched=(\d+))?.*?t=(\d+)ms')
+_FS_DONE     = re.compile(r'\[FenceSynthesis\].*?done ordered=(\d+)/\d+ overspecified=(\d+).*?t=(\d+)ms')
 # Autotools CC step: "  CC       liburcu_la-urcu.lo" → extract short name "urcu"
 _CC_STEP     = re.compile(r'\bCC\b\s+\S*?(?:la-)?(\w+)\.lo\b')
 
@@ -268,6 +269,7 @@ def parse_synthesis_log(build_log: str) -> tuple[list[dict], list[dict]]:
             unit = {
                 "cu_name": current_cu or "unknown",
                 "source": int(m.group(1)),
+                "reachable": None,
                 "implicit": None,
                 "overspecified_initial": None,
                 "ordered_final": None,
@@ -278,6 +280,11 @@ def parse_synthesis_log(build_log: str) -> tuple[list[dict], list[dict]]:
             continue
 
         if unit is None:
+            continue
+
+        m = _FS_MATRIX.search(line)
+        if m:
+            unit["reachable"] = int(m.group(3))
             continue
 
         m = _FS_DONE.search(line)
@@ -292,15 +299,19 @@ def parse_synthesis_log(build_log: str) -> tuple[list[dict], list[dict]]:
         m = _FS_ORDERED.search(line)
         if m:
             ordered = int(m.group(1))
+            batched = int(m.group(3)) if m.group(3) else 1
             if unit["implicit"] is None:
                 unit["implicit"] = ordered
                 unit["overspecified_initial"] = int(m.group(2))
-            unit["promotions"] += 1
+            unit["promotions"] += batched
             outstanding = unit["source"] - ordered
             conv_rows.append({
                 "cu_name": unit["cu_name"],
                 "iteration": iteration,
                 "outstanding": outstanding,
+                "overspecified": int(m.group(2)),
+                "reachable": unit.get("reachable"),
+                "batched": batched,
             })
             iteration += 1
 
@@ -398,12 +409,13 @@ def write_csv(run_id: str, all_results: dict, path: Path):
 
 SYNTH_FIELDS = [
     "run_id", "compiler", "cu_name",
-    "source", "implicit", "overspecified_initial",
+    "source", "reachable", "implicit", "overspecified_initial",
     "ordered_final", "overspecified_final",
     "promotions", "synthesis_time_ms",
 ]
 
-CONV_FIELDS = ["run_id", "compiler", "cu_name", "iteration", "outstanding"]
+CONV_FIELDS = ["run_id", "compiler", "cu_name", "iteration", "outstanding",
+               "overspecified", "reachable"]
 
 
 def write_synthesis_csv(run_id: str, rows: list[dict], path: Path):

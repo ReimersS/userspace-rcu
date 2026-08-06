@@ -483,15 +483,29 @@ def _pin_value_registers(instrs: list, thread: Thread) -> list:
     if not seen:
         return instrs
 
-    # Build rename map: actual_reg → pinned_reg
+    # Determine which pinned slots are already occupied by the compiler.
+    used_pinned = set()
+    for ins in instrs:
+        if ins.label or not ins.operands:
+            continue
+        for tok in re.findall(r'\b[wx]\d+\b', ins.operands.lower()):
+            wreg = re.sub(r"^x", "w", tok)
+            if wreg in pinned:
+                used_pinned.add(wreg)
+
+    # Build rename map: actual_reg → first free pinned_reg
+    free_pinned = [f"w{19+i}" for i in range(len(thread.local_vars))
+                   if f"w{19+i}" not in used_pinned]
     rename = {}
-    for i, wreg in enumerate(seen):
-        if i >= len(thread.local_vars):
+    fi = 0
+    for wreg in seen:
+        if fi >= len(free_pinned):
             break
-        pin_w = f"w{19+i}"
-        pin_x = f"x{19+i}"
+        pin_w = free_pinned[fi]
+        pin_x = pin_w.replace("w", "x", 1)
         rename[wreg] = pin_w
         rename[wreg.replace("w", "x", 1)] = pin_x
+        fi += 1
 
     if not rename:
         return instrs
@@ -692,6 +706,22 @@ def process_one(c_litmus_path, compilers, herd_cmd, cat, libdir, outdir,
 # Summary
 # ---------------------------------------------------------------------------
 
+def _status(ref, obs_by_name):
+    """Determine test status.
+
+    OK:       at least one orb result agrees with rc11.
+    MISMATCH: not ERR and no orb result agrees with rc11.
+    ERR:      all orb results are '?'.
+    """
+    orb_obs = [v for n, v in obs_by_name if n.startswith("orb")]
+    orb_valid = [o for o in orb_obs if o not in ("ERR", "?")]
+    if not orb_valid:
+        return "ERR"
+    if ref in orb_valid:
+        return "OK"
+    return "MISMATCH"
+
+
 def _classify(all_results, compilers):
     names = [c.name for c in compilers]
     ok = mm = err = 0
@@ -699,14 +729,15 @@ def _classify(all_results, compilers):
         if "error" in r:
             err += 1
             continue
-        obs = [_obs_str(r["results"].get(n, {})) for n in names]
-        valid = [o for o in obs if o not in ("ERR", "?")]
-        if not valid:
-            err += 1
-        elif len(set(valid)) == 1:
+        ref = _obs_str(r.get("c_ref", {}))
+        obs_by_name = [(n, _obs_str(r["results"].get(n, {}))) for n in names]
+        s = _status(ref, obs_by_name)
+        if s == "OK":
             ok += 1
-        else:
+        elif s == "MISMATCH":
             mm += 1
+        else:
+            err += 1
     return ok, mm, err
 
 
@@ -721,9 +752,9 @@ def write_csv(all_results, compilers, outdir):
                 w.writerow([r["name"], f'ERR: {r["error"]}'] + [""] * len(names) + ["ERR"])
                 continue
             ref = _obs_str(r.get("c_ref", {}))
-            obs = [_obs_str(r["results"].get(n, {})) for n in names]
-            valid = [o for o in obs if o not in ("ERR", "?")]
-            status = "ERR" if not valid else "OK" if len(set(valid)) == 1 else "MISMATCH"
+            obs_by_name = [(n, _obs_str(r["results"].get(n, {}))) for n in names]
+            obs = [v for _, v in obs_by_name]
+            status = _status(ref, obs_by_name)
             w.writerow([r["name"], ref] + obs + [status])
     return csv_path
 

@@ -15,18 +15,6 @@
       "cflags": ["-O0", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=333"]
     },
     {
-      "name": "orb-O0-fc666",
-      "flake_output": "orb-O0-fc666",
-      "synthesis": true,
-      "cflags": ["-O0", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=666"]
-    },
-    {
-      "name": "orb-O0-fc999",
-      "flake_output": "orb-O0-fc999",
-      "synthesis": true,
-      "cflags": ["-O0", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=999"]
-    },
-    {
       "name": "orb-O3-fc1",
       "flake_output": "orb-O3-fc1",
       "synthesis": true,
@@ -37,18 +25,6 @@
       "flake_output": "orb-O3-fc333",
       "synthesis": true,
       "cflags": ["-O3", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=333"]
-    },
-    {
-      "name": "orb-O3-fc666",
-      "flake_output": "orb-O3-fc666",
-      "synthesis": true,
-      "cflags": ["-O3", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=666"]
-    },
-    {
-      "name": "orb-O3-fc999",
-      "flake_output": "orb-O3-fc999",
-      "synthesis": true,
-      "cflags": ["-O3", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=999"]
     },
     {
       "name": "clang-O0",
@@ -72,10 +48,6 @@
     }
   ],
   "benchmarks": [
-    {
-      "name": "hashtable_3s",
-      "path": "tests/benchmark/hashtable_3_seconds.tap"
-    },
     {
       "name": "urcu_3s",
       "path": "tests/benchmark/urcu_3_seconds.tap"
