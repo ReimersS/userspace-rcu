@@ -270,6 +270,7 @@ def write_latex(rows, out_path, opt="O3"):
     for label, binary in progs:
         clang_r = _lookup(rows, binary, f"clang-{opt}")
         cir_r = _lookup(rows, binary, f"clangir-{opt}")
+        naive_r = _lookup(rows, binary, f"orb-{opt}-naive")
         orb_rs = [_lookup(rows, binary, f"orb-{opt}-fc{fc}")
                   for fc, _ in FC_ORDER]
 
@@ -283,7 +284,7 @@ def write_latex(rows, out_path, opt="O3"):
         for col_key, _ in TABLE_ROW_LABELS:
             val = cir_r[col_key] if cir_r else 0
             cir_cells.extend([_cell(val), ""])
-        w(f"        \\multirow{{3}}{{*}}{{{label}}}"
+        w(f"        \\multirow{{4}}{{*}}{{{label}}}"
           f" & clangir & {' & '.join(cir_cells)}\\\\[-3pt]")
 
         # clang row (delta vs clangir)
@@ -295,6 +296,16 @@ def write_latex(rows, out_path, opt="O3"):
             clang_cells.extend([_cell(val),
                               _colored_delta(d, plain=col_key in _INVERT_COLS)])
         w(f"         & clang & {' & '.join(clang_cells)}\\\\[-3pt]")
+
+        # naive-orb row (delta vs clangir)
+        naive_cells = [_cell(_total(naive_r))]
+        for col_key, _ in TABLE_ROW_LABELS:
+            val = naive_r[col_key] if naive_r else 0
+            base_val = base_r[col_key] if base_r else 0
+            d = val - base_val
+            naive_cells.extend([_cell(val),
+                              _colored_delta(d, plain=col_key in _INVERT_COLS)])
+        w(f"         & naive & {' & '.join(naive_cells)}\\\\[-3pt]")
 
         # orb row — bold, combined L/H cells, delta vs clangir
         orb_cells = [f"\\gray \\textbf{{{_orb_cell([_total(r) for r in orb_rs])}}}"]

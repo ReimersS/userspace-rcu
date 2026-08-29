@@ -1,0 +1,68 @@
+{
+  "flake_dir": "/home/sebastian/userspace-rcu",
+  "orb_cc": "result-orb-cc/bin/clang",
+  "compilers": [
+    {
+      "name": "orb-O0-fc1",
+      "flake_output": "orb-O0-fc1",
+      "synthesis": true,
+      "cflags": ["-O0", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=1"]
+    },
+    {
+      "name": "orb-O0-fc333",
+      "flake_output": "orb-O0-fc333",
+      "synthesis": true,
+      "cflags": ["-O0", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=333"]
+    },
+    {
+      "name": "orb-O0-naive",
+      "flake_output": "naive-O0",
+      "synthesis": true,
+      "cflags": ["-O0", "-fclangir", "-Xclang", "-naive-orb"]
+    },
+    {
+      "name": "orb-O3-fc1",
+      "flake_output": "orb-O3-fc1",
+      "synthesis": true,
+      "cflags": ["-O3", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=1"]
+    },
+    {
+      "name": "orb-O3-fc333",
+      "flake_output": "orb-O3-fc333",
+      "synthesis": true,
+      "cflags": ["-O3", "-fclangir", "-Xclang", "-orb", "-Xclang", "-orb-fence-cost-base=333"]
+    },
+    {
+      "name": "orb-O3-naive",
+      "flake_output": "naive-O3",
+      "synthesis": true,
+      "cflags": ["-O3", "-fclangir", "-Xclang", "-naive-orb"]
+    },
+    {
+      "name": "clang-O0",
+      "flake_output": "clangO0Package",
+      "cflags": ["-O0"]
+    },
+    {
+      "name": "clang-O3",
+      "flake_output": "clangO3Package",
+      "cflags": ["-O3"]
+    },
+    {
+      "name": "clangir-O0",
+      "flake_output": "clangirO0Package",
+      "cflags": ["-O0", "-fclangir"]
+    },
+    {
+      "name": "clangir-O3",
+      "flake_output": "clangirO3Package",
+      "cflags": ["-O3", "-fclangir"]
+    }
+  ],
+  "benchmarks": [
+    {
+      "name": "urcu_3s_small",
+      "path": "tests/benchmark/urcu_3_seconds_small.tap"
+    }
+  ]
+}

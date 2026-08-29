@@ -14,8 +14,12 @@ from datetime import datetime
 from pathlib import Path
 
 
-N_RUNS = 5
+N_RUNS = 20
 N_THREADS = [64]
+N_CPUS = [16, 32, 48, 64]
+
+CGROUP_PATH = "/sys/fs/cgroup/benchmark/cgroup.procs"
+CGROUP_CPUSET = "/sys/fs/cgroup/benchmark/cpuset.cpus.effective"
 
 
 # ---------------------------------------------------------------------------
@@ -47,32 +51,71 @@ def build_compiler(flake_dir: str, compiler: dict) -> tuple[str, str]:
 # Run
 # ---------------------------------------------------------------------------
 
-def run_benchmark(store_path: str, benchmark: dict, out_dir: Path,
-                  run_n: int, n_threads: int) -> tuple[str, float]:
-    """Run a single benchmark .tap script, return (output, elapsed_seconds).
+def _parse_cpuset(s: str) -> list[int]:
+    """Parse a cpuset string like '128-191' into a sorted list of CPU ids."""
+    cpus = []
+    for part in s.split(","):
+        if "-" in part:
+            lo, hi = part.split("-", 1)
+            cpus.extend(range(int(lo), int(hi) + 1))
+        else:
+            cpus.append(int(part))
+    return sorted(cpus)
 
-    n_threads limits the CPU affinity mask so that nproc returns n_threads,
-    which controls THREAD_MUL inside the tap scripts.
+
+def _format_cpuset(cpus: list[int]) -> str:
+    """Format a list of CPU ids into a compact range string for taskset."""
+    if not cpus:
+        return ""
+    ranges = []
+    start = prev = cpus[0]
+    for c in cpus[1:]:
+        if c == prev + 1:
+            prev = c
+        else:
+            ranges.append(f"{start}-{prev}" if prev > start else str(start))
+            start = prev = c
+    ranges.append(f"{start}-{prev}" if prev > start else str(start))
+    return ",".join(ranges)
+
+
+def run_benchmark(store_path: str, benchmark: dict, out_dir: Path,
+                  n_threads: int, n_cpus: int) -> tuple[str, float]:
+    """Run a benchmark .tap script with N_RUNS measured iterations, return (output, elapsed).
+
+    n_cpus restricts how many CPUs the benchmark can use (via taskset).
+    When cgroup isolation is available, processes are first moved into the
+    isolated cgroup, then additionally constrained to n_cpus cores via taskset.
     """
     tap_script = Path(store_path) / benchmark["path"]
     env = os.environ.copy()
     env["URCU_TESTS_SRCDIR"] = str(Path(store_path) / "tests")
     env["URCU_TESTS_BUILDDIR"] = str(Path(store_path) / "tests")
     env["URCU_TESTS_NPROC_BIN"] = "nproc"
+    env["URCU_BENCH_MEASURED"] = str(N_RUNS)
 
-    print(f"  [run] {benchmark['name']} t={n_threads} #{run_n}")
+    print(f"  [run] {benchmark['name']} cpus={n_cpus} t={n_threads} measured={N_RUNS}")
     t0 = time.monotonic()
-    result = subprocess.run(
-        ["taskset", "-c", f"0-{n_threads - 1}", "bash", str(tap_script)],
-        capture_output=True, text=True, env=env,
-    )
+
+    if os.path.exists(CGROUP_PATH):
+        # Read the cgroup's assigned CPUs and pick the first n_cpus.
+        cgroup_cpus = _parse_cpuset(Path(CGROUP_CPUSET).read_text().strip())
+        selected = cgroup_cpus[:n_cpus]
+        taskset = f"taskset -c {_format_cpuset(selected)}"
+        cmd = ["bash", "-c",
+               f"echo $$ | sudo tee {CGROUP_PATH} >/dev/null && exec {taskset} bash {tap_script}"]
+    else:
+        taskset = f"taskset -c 0-{n_cpus - 1}"
+        cmd = ["bash", "-c", f"exec {taskset} bash {tap_script}"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     elapsed = time.monotonic() - t0
 
     output = result.stdout + result.stderr
-    out_file = out_dir / f"{benchmark['name']}.{n_threads}t.{run_n}.tap"
+    out_file = out_dir / f"{benchmark['name']}.{n_threads}t.{n_cpus}c.tap"
     out_file.write_text(output)
     if result.returncode != 0:
-        print(f"  [warn] {benchmark['name']} t={n_threads} #{run_n} exited {result.returncode}")
+        print(f"  [warn] {benchmark['name']} cpus={n_cpus} t={n_threads} exited {result.returncode}")
     return output, elapsed
 
 
@@ -333,6 +376,7 @@ def compare_outputs(all_results: dict) -> str:
         combined_baseline = "".join(
             o for o, *_ in all_results[baseline_name][benchmark_name]["outputs"]
         )
+
         baseline_counts = tap_counts(combined_baseline)
         lines.append(
             f"  {baseline_name:14s}: ok={baseline_counts['ok']}  "
@@ -360,7 +404,7 @@ def compare_outputs(all_results: dict) -> str:
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
-    "run_id", "compiler", "n_threads", "run_n", "benchmark",
+    "run_id", "compiler", "n_threads", "n_cpus", "run_n", "benchmark",
     "tap_n", "tap_ok", "test_program", "write_mode", "mm_backend",
     "writer_delay", "reader_cs_dur",
     "nr_readers", "nr_writers",
@@ -376,13 +420,18 @@ def write_csv(run_id: str, all_results: dict, path: Path):
         writer.writeheader()
         for compiler, benchmarks in all_results.items():
             for benchmark_name, data in benchmarks.items():
-                for run_n, (output, wall, n_threads) in enumerate(data["outputs"], 1):
+                for output, wall, n_threads, n_cpus in data["outputs"]:
                     wall_str = f"{wall:.2f}" if wall is not None else ""
+                    # Derive run_n per test_program (consecutive runs in TAP output)
+                    prog_counts: dict[str, int] = defaultdict(int)
                     for summary in parse_summaries(output):
+                        prog_counts[summary["test_program"]] += 1
+                        run_n = prog_counts[summary["test_program"]]
                         writer.writerow({
                             "run_id":                 run_id,
                             "compiler":               compiler,
                             "n_threads":              n_threads,
+                            "n_cpus":                 n_cpus,
                             "run_n":                  run_n,
                             "benchmark":              benchmark_name,
                             "tap_n":                  summary["tap_n"],
@@ -474,19 +523,23 @@ def reparse(run_dir: Path) -> None:
         compiler = compiler_dir.name
         all_results[compiler] = {}
 
-        # Group *.{n_threads}t.{run_n}.tap (or legacy *.{run_n}.tap) by benchmark.
+        # Group tap files by benchmark name.
+        # Formats: {bench}.{threads}t.{cpus}c.tap (new)
+        #          {bench}.{threads}t.tap (old)
+        #          {bench}.{threads}t.{run_n}.tap (legacy)
         tap_groups: dict[str, list[Path]] = defaultdict(list)
         for tap_file in sorted(compiler_dir.glob("*.tap")):
             bench = tap_file.name.split(".")[0]
             tap_groups[bench].append(tap_file)
 
-        _threads_re = re.compile(r"\.(\d+)t\.\d+\.tap$")
+        _tap_re = re.compile(r"\.(\d+)t(?:\.(\d+)c)?(?:\.\d+)?\.tap$")
         for bench, files in sorted(tap_groups.items()):
             outputs = []
             for f in sorted(files):
-                m = _threads_re.search(f.name)
+                m = _tap_re.search(f.name)
                 n_threads = int(m.group(1)) if m else None
-                outputs.append((f.read_text(), None, n_threads))
+                n_cpus = int(m.group(2)) if m and m.group(2) else n_threads
+                outputs.append((f.read_text(), None, n_threads, n_cpus))
             all_results[compiler][bench] = {"outputs": outputs}
 
     report = compare_outputs(all_results)
@@ -533,7 +586,7 @@ def main():
         store_paths[compiler["name"]] = path
         build_logs[compiler["name"]]  = log
 
-    # Run benchmarks (N_RUNS times each)
+    # Run benchmarks (N_RUNS measured iterations handled inside tap script)
     all_results: dict[str, dict] = {}
     for compiler in compilers:
         name = compiler["name"]
@@ -545,10 +598,11 @@ def main():
         for benchmark in benchmarks:
             outputs = []
             for n_threads in N_THREADS:
-                for run_n in range(1, N_RUNS + 1):
+                for n_cpus in N_CPUS:
                     output, elapsed = run_benchmark(store_path, benchmark,
-                                                    compiler_dir, run_n, n_threads)
-                    outputs.append((output, elapsed, n_threads))
+                                                    compiler_dir, n_threads,
+                                                    n_cpus)
+                    outputs.append((output, elapsed, n_threads, n_cpus))
             all_results[name][benchmark["name"]] = {"outputs": outputs}
 
     # Compare and report

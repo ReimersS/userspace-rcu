@@ -6,11 +6,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1785956167,
-        "narHash": "sha256-VilctWptQI484wICsoYsM4WgEqmMZGceGeXH5eKxuCs=",
-        "ref": "refs/heads/loop-cost",
-        "rev": "24deed571fc764336ec266243140d1aea92efa5d",
-        "revCount": 584262,
+        "lastModified": 1787921691,
+        "narHash": "sha256-5OqhUfiATR42CJWDmdhTO/pIHPaNsggz2m98pVnhwoA=",
+        "ref": "refs/heads/convert-plain",
+        "rev": "caf6487407f6d4fbba85d7a10be2ca95439669f1",
+        "revCount": 584328,
         "type": "git",
         "url": "file:///scratch/sebastian/llvm-orb"
       },

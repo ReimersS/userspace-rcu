@@ -66,19 +66,66 @@
         buildInputs = inputs_common;
         preConfigure = ''
           autoreconf -fiv
+
+          # CC timing wrapper: logs elapsed time per compilation to .cc-times/
+          mkdir -p .cc-times
+          real_cc="$CC"
+          timesdir="$(pwd)/.cc-times"
+          wrapper="$(pwd)/.cc-wrapper"
+          cat > "$wrapper" <<WRAPPER
+#!${pkgs.runtimeShell}
+src=""
+ofile=""
+for arg; do
+  case "\$arg" in
+    *.c|*.cc|*.cpp) src="\$arg";;
+    *.o) ofile="\$arg";;
+  esac
+done
+# Per-target synth log directory: automake names objects
+# "target-source.o" when custom CFLAGS exist, else "source.o".
+if [ -n "\$ofile" ] && [ -n "\$ORB_SYNTH_LOG_BASE" ]; then
+  obase=\$(basename "\$ofile" .o)
+  # "test_urcu_mb-test_urcu" -> target="test_urcu_mb"
+  # "test_urcu" -> target="test_urcu"
+  case "\$obase" in
+    *-*) target="''${obase%%-*}";;
+    *)   target="\$obase";;
+  esac
+  export ORB_SYNTH_LOG="\$ORB_SYNTH_LOG_BASE/\$target"
+  mkdir -p "\$ORB_SYNTH_LOG"
+fi
+t0=\$(date +%s%N)
+$real_cc "\$@"
+rc=\$?
+t1=\$(date +%s%N)
+if [ -n "\$src" ]; then
+  elapsed_ms=\$(( (t1 - t0) / 1000000 ))
+  base=\$(basename "\$src")
+  obase=\$(basename "\$ofile" .o 2>/dev/null)
+  echo "\$base \$obase \$elapsed_ms" >> $timesdir/times.log
+fi
+exit \$rc
+WRAPPER
+          chmod +x "$wrapper"
+          export CC="$wrapper"
         '' + (if synthesis then ''
-          export ORB_SYNTH_LOG="$(pwd)/.synth-logs"
-          mkdir -p "$ORB_SYNTH_LOG"
+          export ORB_SYNTH_LOG_BASE="$(pwd)/.synth-logs"
+          mkdir -p "$ORB_SYNTH_LOG_BASE"
         '' else "");
         dontDisableStatic = true;
         enableParallelBuilding = true;
         configureFlags = [ "--enable-compiler-atomic-builtins" "--disable-shared" ];
         CFLAGS = "-march=armv8.1-a+rcpc ${cflags}";
         CXXFLAGS = "-march=armv8.1-a+rcpc ${cflags}";
-        installPhase = installTests + (if synthesis then ''
+        installPhase = installTests + ''
+          if [ -f .cc-times/times.log ]; then
+            mkdir -p $out/cc-times
+            cp .cc-times/times.log $out/cc-times/
+          fi
+        '' + (if synthesis then ''
           if [ -d .synth-logs ]; then
-            mkdir -p $out/synth
-            cp .synth-logs/* $out/synth/ 2>/dev/null || true
+            cp -r .synth-logs $out/synth
           fi
         '' else "");
       };
@@ -101,6 +148,12 @@
                          cflags = "-fclangir -Xclang -orb -Xclang -orb-fence-cost-base=${toString fc} -O3"; }; }
     ]) fCosts)) // {
 
+      "naive-O0" = mkUrcu { name = "urcu-naive-O0"; stdenv = orbstdenv; synthesis = true;
+                             cflags = "-fclangir -Xclang -naive-orb -O0"; };
+      "naive-O3" = mkUrcu { name = "urcu-naive-O3"; stdenv = orbstdenv; synthesis = true;
+                             cflags = "-fclangir -Xclang -naive-orb -O3"; };
+    } // {
+
       devShells.default = pkgs.mkShell {
         packages = [
           #pkgs.jupyter
@@ -121,6 +174,26 @@
         CFLAGS = "-march=armv8.1-a+rcpc -fclangir -Xclang -orb";
         CXXFLAGS = "-march=armv8.1-a+rcpc -fclangir -Xclang -orb";
         installPhase = installTests;
+      };
+      impureNaivePackage = mystdenv.mkDerivation {
+        name = "urcu-impure-naive";
+        src = filteredSrc;
+        buildInputs = inputs_common ++ (with pkgs; [ gdb ]);
+        preConfigure = ''
+          autoreconf -fiv
+          export ORB_SYNTH_LOG="$(pwd)/.synth-logs"
+          mkdir -p "$ORB_SYNTH_LOG"
+        '';
+        dontDisableStatic = true;
+        configureFlags = [ "--enable-compiler-atomic-builtins" "--disable-shared" ];
+        CFLAGS = "-march=armv8.1-a+rcpc -fclangir -Xclang -naive-orb";
+        CXXFLAGS = "-march=armv8.1-a+rcpc -fclangir -Xclang -naive-orb";
+        installPhase = installTests + ''
+          if [ -d .synth-logs ]; then
+            mkdir -p $out/synth
+            cp .synth-logs/* $out/synth/ 2>/dev/null || true
+          fi
+        '';
       };
     }
   );
