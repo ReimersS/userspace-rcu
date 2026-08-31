@@ -16,7 +16,8 @@ from pathlib import Path
 
 N_RUNS = 20
 N_THREADS = [64]
-N_CPUS = [16, 32, 48, 64]
+#N_CPUS = [16, 32, 48, 64]
+N_CPUS = [64]
 
 CGROUP_PATH = "/sys/fs/cgroup/benchmark/cgroup.procs"
 CGROUP_CPUSET = "/sys/fs/cgroup/benchmark/cpuset.cpus.effective"

@@ -18,6 +18,7 @@ source "$UTILSSH"
 DURATION=${1:-10}
 WARMUP=${2:-5}
 MEASURED=${3:-1}
+TIMEOUT=$((DURATION * 2))
 
 TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"; _exit' EXIT
@@ -33,10 +34,10 @@ plan_tests ${NUM_TESTS}
 for TEST in ${TEST_ARRAY}; do
 	for _w in $(seq 1 "${WARMUP}"); do
 		diag "warmup ${_w}/${WARMUP}: ${TEST}"
-		"${URCU_TESTS_BUILDDIR}/benchmark/${TEST}" 32 32 "${DURATION}" >/dev/null 2>&1
+		timeout "${TIMEOUT}" "${URCU_TESTS_BUILDDIR}/benchmark/${TEST}" 32 32 "${DURATION}" >/dev/null 2>&1
 	done
 	for _m in $(seq 1 "${MEASURED}"); do
-		okx ${URCU_TESTS_TIME_BIN} "${URCU_TESTS_BUILDDIR}/benchmark/${TEST}" 32 32 "${DURATION}" 2>"${TMPFILE}"
+		okx ${URCU_TESTS_TIME_BIN} timeout "${TIMEOUT}" "${URCU_TESTS_BUILDDIR}/benchmark/${TEST}" 32 32 "${DURATION}" 2>"${TMPFILE}"
 		diag "time: $(cat "${TMPFILE}")"
 	done
 done
